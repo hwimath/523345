@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>유리수가 되게 하는 x의 값</title>
+  <!-- MathJax 로드 (LaTeX 수식 렌더링용) -->
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" defer></script>
+  <style>
+    body {
+      background-color: white;
+      color: black;
+      font-family: sans-serif;
+      margin: 20px;
+    }
+    h1, h2, h3 {
+      margin: 0.5em 0;
+    }
+    #gameContainer {
+      margin-top: 20px;
+    }
+    .questionBox {
+      border: 1px solid black;
+      padding: 10px;
+      margin: 10px 0;
+    }
+    .choices {
+      margin-top: 10px;
+    }
+    .choiceBtn {
+      display: inline-block;
+      margin-right: 10px;
+      margin-bottom: 5px;
+      padding: 5px 10px;
+      border: 1px solid black;
+      background-color: white;
+      cursor: pointer;
+    }
+    .infoBar {
+      margin: 5px 0;
+    }
+    #energyBarContainer {
+      width: 200px;
+      height: 20px;
+      border: 1px solid black;
+      position: relative;
+      margin-top: 5px;
+      margin-bottom: 10px;
+    }
+    #energyBar {
+      position: absolute;
+      left: 0;
+      top: 0;
+      height: 20px;
+      background-color: black;
+      width: 200px; /* 시작 폭(난이도에 따라 조절) */
+    }
+    #response {
+      white-space: pre-wrap;
+      border: 1px solid black;
+      padding: 5px;
+      margin: 5px 0;
+      min-height: 50px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>유리수가 되게 하는 x의 값</h1>
+
+<!-- 난이도, 이름 입력화면 -->
+<div id="startScreen">
+  <h2>난이도를 선택하세요</h2>
+  <label><input type="radio" name="level" value="top"> 최상 (20초, 문제당 20점)</label><br>
+  <label><input type="radio" name="level" value="high"> 상 (30초, 문제당 15점)</label><br>
+  <label><input type="radio" name="level" value="mid"> 중 (40초, 문제당 13점)</label><br>
+  <label><input type="radio" name="level" value="low"> 하 (시간제한 없음, 문제당 10점)</label><br><br>
+  
+  <h3>플레이어 이름을 입력하세요</h3>
+  <input type="text" id="playerName" placeholder="이름 입력">
+  <br><br>
+  <button onclick="startGame()">게임 시작</button>
+</div>
+
+<!-- 게임 진행화면 -->
+<div id="gameContainer" style="display:none;">
+  <div class="infoBar">
+    <span>남은 기회: <span id="lives">3</span></span>
+    &emsp;|&emsp;
+    <span>현재 점수: <span id="score">0</span></span>
+    &emsp;|&emsp;
+    <span>전체 경과 시간: <span id="elapsedTime">0</span>초</span>
+  </div>
+
+  <div id="energyBarContainer" style="display:block;">
+    <div id="energyBar"></div>
+  </div>
+  
+  <div id="questionArea" class="questionBox">
+    <!-- 문제와 보기 표시 -->
+  </div>
+</div>
+
+<!-- 게임 오버 화면 -->
+<div id="gameOverScreen" style="display:none;">
+  <h2>게임 종료</h2>
+  <p>최종 점수: <span id="finalScore"></span></p>
+  <button onclick="sendScore()">점수전송</button>
+  <div id="response"></div>
+</div>
+
+<script>
+// 전송용 함수 (요청주신 코드 그대로 삽입)
+function saveData(game, name, score, elapsedTime) {
+    const FUNCTION_URL = "https://us-central1-record-f420d.cloudfunctions.net/report";
+
+    const requestData = {
+        game,
+        name,
+        score: parseInt(score, 10),
+        elapsedTime: parseInt(elapsedTime, 10)
+    };
+
+    try {
+        fetch(FUNCTION_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        })
+        .then(async response => {
+            const responseData = await response.json();
+            if (response.ok) {
+                document.getElementById('response').innerText =
+                    "성공: " + JSON.stringify(responseData, null, 2);
+            } else {
+                document.getElementById('response').innerText =
+                    "오류: " + JSON.stringify(responseData, null, 2);
+            }
+        })
+        .catch(error => {
+            document.getElementById('response').innerText =
+                "네트워크 오류: " + error.message;
+        });
+    } catch (error) {
+        console.error('요청 실패:', error);
+        document.getElementById('response').innerText =
+            "네트워크 오류: " + error.message;
+    }
+}
+
+// ======================= 문제 목록 (모두 49문제) =============================
+//
+// 각 문제에 대해:
+//  question: (문제문)
+//  choices: ["보기1","보기2","보기3","보기4"] (문자열 배열)
+//  correct: 정답(보기와 동일한 문자열)
+//
+// 필요 시 \(...\) 내에 LaTeX 문법을 삽입하여 MathJax 렌더링.
+// 분수는 \\(\\dfrac{}{}\\) 형태로 작성.
+//
+// ============================================================================
+
+const questionsData = [
+  {
+    question: "다음 식 \\(\\sqrt{3x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","2","3","6"],
+    correct: "3"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{8x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","2","4","8"],
+    correct: "2"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{2x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","2","3","4"],
+    correct: "2"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{32x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","2","4","8"],
+    correct: "2"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{24x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["2","3","4","6"],
+    correct: "6"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{50x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","2","5","10"],
+    correct: "2"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{120x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["6","10","15","30"],
+    correct: "30"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{140x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["5","14","35","70"],
+    correct: "35"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{189x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["7","9","21","27"],
+    correct: "21"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{18}{5} \\cdot x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["5","8","10","20"],
+    correct: "10"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{40}{3} \\cdot x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["6","15","30","60"],
+    correct: "30"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{3^2 \\times 5 \\times x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","3","5","15"],
+    correct: "5"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{5 \\times 7 \\times x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["5","14","21","35"],
+    correct: "35"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{3 \\times 5^2 \\times x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","3","5","15"],
+    correct: "3"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{18}{x}}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","2","3","6"],
+    correct: "2"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{120}{x}}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["10","15","20","30"],
+    correct: "30"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{540}{x}}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["6","9","15","18"],
+    correct: "15"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{242}{x}}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","2","11","22"],
+    correct: "2"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{3^2 \\times 5}{x}}\\) = \\(\\sqrt{\\dfrac{45}{x}}\\) 이 자연수가 되도록 하는 가장 작은 \\(x\\)는?",
+    choices: ["1","5","9","15"],
+    correct: "5"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{180}{x}}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["3","5","6","10"],
+    correct: "5"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{75}{x}}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","3","5","15"],
+    correct: "3"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{84}{x}}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["6","7","12","21"],
+    correct: "21"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{96}{x}}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["3","4","6","8"],
+    correct: "6"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{360}{x}}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["5","6","10","12"],
+    correct: "10"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{2^2 \\times 3}{x}}\\) = \\(\\sqrt{\\dfrac{12}{x}}\\) 이 자연수가 되도록 하는 가장 작은 \\(x\\)는?",
+    choices: ["1","2","3","6"],
+    correct: "3"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{2^3 \\times 5}{x}}\\) = \\(\\sqrt{\\dfrac{40}{x}}\\) 이 자연수가 되도록 하는 가장 작은 \\(x\\)는?",
+    choices: ["5","8","10","20"],
+    correct: "10"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{12}{x}}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["2","3","4","6"],
+    correct: "3"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{\\dfrac{2^5 \\times 3}{x}}\\) = \\(\\sqrt{\\dfrac{96}{x}}\\) 이 자연수가 되도록 하는 가장 작은 \\(x\\)는?",
+    choices: ["2","3","4","6"],
+    correct: "6"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{6 + x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","2","3","4"],
+    correct: "3"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{30 + x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","2","5","6"],
+    correct: "6"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{8 + x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","2","3","4"],
+    correct: "1"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{45 + x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","4","5","9"],
+    correct: "4"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{5 + x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["3","4","5","6"],
+    correct: "4"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{18 + x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","5","7","8"],
+    correct: "7"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{21 + x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["4","5","6","7"],
+    correct: "4"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{41 + x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["4","5","8","9"],
+    correct: "8"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{55 + x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["4","5","9","10"],
+    correct: "9"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{76 + x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["5","6","7","8"],
+    correct: "5"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{125 - x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["0","4","5","9"],
+    correct: "4"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{17 - x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","2","3","4"],
+    correct: "1"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{30 - x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["4","5","6","10"],
+    correct: "5"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{46 - x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["6","9","10","15"],
+    correct: "10"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{50 - x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","2","5","10"],
+    correct: "1"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{6 - x}\\) 이 자연수가 되도록 하는 가장 작은 자연수 \\(x\\)는?",
+    choices: ["1","2","3","4"],
+    correct: "2"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{300 + x}\\) 와 \\(\\sqrt{54y}\\) 가 각각 자연수가 되도록 하는 가장 작은 자연수 \\(x,y\\)에 대해, \\(x - y\\)의 값은?",
+    choices: ["12","18","24","30"],
+    correct: "18"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{48x}\\) 와 \\(\\sqrt{48 - x}\\) 를 모두 자연수로 만드는 자연수 \\(x\\)는?",
+    choices: ["4","8","12","16"],
+    correct: "12"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{13 - x}\\) 가 자연수가 되도록 하는 자연수 \\(x\\) 중, 가장 작은 값을 \\(a\\), 가장 큰 값을 \\(b\\)라 할 때 \\(a + b\\)는?",
+    choices: ["12","13","16","17"],
+    correct: "16"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{31 - x}\\) 가 자연수가 되도록 하는 자연수 \\(x\\) 중, 가장 작은 값을 \\(m\\), 가장 큰 값을 \\(M\\)이라 할 때 \\(M - m\\)은?",
+    choices: ["20","22","24","25"],
+    correct: "24"
+  },
+  {
+    question: "다음 식 \\(\\sqrt{71 - x} - \\sqrt{y + 13}\\) 이 가장 큰 자연수가 되도록 하는 자연수 \\(x, y\\)를 구했을 때, 그 식의 최댓값은?",
+    // 문제 요약: 최댓값이 4이며, x=7, y=3일 때. (보기는 최댓값 자체만 묻거나, (x,y)값을 묻거나 등 다양할 수 있으나
+    // 여기서는 '가장 큰 자연수값'이 몇인지 묻도록 구성)
+    choices: ["2","3","4","5"],
+    correct: "4"
+  }
+];
+
+// ====================== 게임 진행 관련 전역 변수들 ======================
+let allQuestions = [];     // 질문들을 무작위 섞어서 저장
+let currentIndex = 0;      // 현재 문제 인덱스
+let score = 0;             // 점수
+let lives = 3;             // 남은 기회
+let questionTimer = null;  // 개별 문제 타이머
+let totalStartTime;        // 게임 시작 시점(전체 경과 시간)
+let difficultyTime = 0;    // 난이도별 제한 시간(초), 하=0(무제한)
+
+// 난이도별 점수
+let difficultyScore = 10;  // 기본 하
+let playerName = "";
+
+// ====================== 난이도 설정 & 시작 =============================
+function startGame() {
+  const levelRadio = document.querySelector('input[name="level"]:checked');
+  if(!levelRadio){
+    alert("난이도를 선택해주세요!");
+    return;
+  }
+  playerName = document.getElementById("playerName").value.trim();
+  if(!playerName){
+    alert("이름을 입력해주세요!");
+    return;
+  }
+
+  const level = levelRadio.value;
+
+  if(level === "top"){
+    difficultyTime = 20;
+    difficultyScore = 20;
+  } else if(level === "high"){
+    difficultyTime = 30;
+    difficultyScore = 15;
+  } else if(level === "mid"){
+    difficultyTime = 40;
+    difficultyScore = 13;
+  } else {
+    // 하
+    difficultyTime = 0;
+    difficultyScore = 10;
+  }
+
+  document.getElementById("startScreen").style.display = "none";
+  document.getElementById("gameContainer").style.display = "block";
+
+  // 전체 경과 시간 측정 시작
+  totalStartTime = Date.now();
+  setInterval(updateElapsedTime, 1000);
+
+  // 문제 섞기
+  prepareQuestions();
+
+  // 첫 문제 표시
+  showQuestion();
+}
+
+// ====================== 문제 섞기 및 배열 준비 =========================
+function prepareQuestions(){
+  // 모든 문제 복사
+  allQuestions = [...questionsData];
+
+  // 전부 무작위 섞기
+  shuffleArray(allQuestions);
+  // 현재 인덱스 0으로
+  currentIndex = 0;
+}
+
+// 피셔-예이츠(Fisher-Yates) 셔플
+function shuffleArray(arr){
+  for(let i=arr.length-1; i>0; i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+// 보기용도 섞기
+function shuffleArrayInPlace(arr){
+  for(let i=arr.length-1; i>0; i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+// ====================== 문제 표시 ==========================
+function showQuestion(){
+  // 에너지바 초기화
+  resetEnergyBar();
+
+  const qObj = allQuestions[currentIndex];
+  const qText = qObj.question;
+  const answer = qObj.correct;
+  let choicesArr = [...qObj.choices];
+
+  // 보기도 셔플
+  shuffleArrayInPlace(choicesArr);
+
+  const questionArea = document.getElementById("questionArea");
+  questionArea.innerHTML = "";
+
+  // 문제 표시
+  const qDiv = document.createElement("div");
+  qDiv.innerHTML = qText;
+  questionArea.appendChild(qDiv);
+
+  // 보기를 버튼으로
+  const choiceContainer = document.createElement("div");
+  choiceContainer.className = "choices";
+  choicesArr.forEach(ch => {
+    const btn = document.createElement("div");
+    btn.className = "choiceBtn";
+    btn.innerText = ch;
+    btn.onclick = () => {
+      checkAnswer(ch, answer);
+    };
+    choiceContainer.appendChild(btn);
+  });
+  questionArea.appendChild(choiceContainer);
+
+  // 문제 수식 렌더링
+  MathJax.typeset();
+
+  // 문제별 타이머 시작 (난이도가 '하'가 아닐 때)
+  if(difficultyTime > 0){
+    startEnergyBar(difficultyTime);
+  }
+}
+
+// =================== 정답체크 ========================
+function checkAnswer(chosen, correct){
+  // 시간 타이머 클리어
+  stopEnergyBar();
+
+  if(chosen === correct){
+    // 정답
+    score += difficultyScore;
+    document.getElementById("score").innerText = score;
+  } else {
+    // 오답
+    lives--;
+    alert("틀렸습니다!\n정답은 '"+correct+"' 입니다.");
+    document.getElementById("lives").innerText = lives;
+    if(lives <= 0){
+      endGame();
+      return;
+    }
+  }
+  nextQuestion();
+}
+
+// 제한시간 소진 시(에너지바 끝) 처리
+function timeOver(){
+  stopEnergyBar();
+  lives--;
+  alert("시간 초과!\n기회가 1 감소합니다.");
+  document.getElementById("lives").innerText = lives;
+  if(lives <= 0){
+    endGame();
+    return;
+  }
+  nextQuestion();
+}
+
+// ====================== 다음 문제 로직 =====================
+function nextQuestion(){
+  currentIndex++;
+  // 모든 문제 다 풀었으면 "무한 랜덤"으로 다시 진행
+  // (문제 요구사항: “모든 문제가 끝난 뒤에는 랜덤으로 끝없이…”)
+  if(currentIndex >= allQuestions.length){
+    // 다시 섞어서 무한출제
+    shuffleArray(allQuestions);
+    currentIndex = 0;
+  }
+  showQuestion();
+}
+
+// ====================== 에너지바(개별문제 타이머) =====================
+let barInterval = null;
+let timeLeft = 0;
+
+function startEnergyBar(sec){
+  timeLeft = sec;
+  updateEnergyBar(); // 초기화
+  barInterval = setInterval(function(){
+    timeLeft--;
+    updateEnergyBar();
+    if(timeLeft <= 0){
+      // 시간 끝
+      timeOver();
+    }
+  }, 1000);
+}
+
+function updateEnergyBar(){
+  const bar = document.getElementById("energyBar");
+  if(difficultyTime>0){
+    let totalWidth = 200; // css에서 width:200px
+    let ratio = timeLeft / difficultyTime;
+    let nowWidth = Math.floor(totalWidth * ratio);
+    bar.style.width = nowWidth + "px";
+  } else {
+    // 하 난이도(무제한)
+    bar.style.width = "200px"; // 풀로 유지
+  }
+}
+
+function resetEnergyBar(){
+  const bar = document.getElementById("energyBar");
+  bar.style.width = "200px";
+  stopEnergyBar();
+}
+
+function stopEnergyBar(){
+  if(barInterval){
+    clearInterval(barInterval);
+    barInterval = null;
+  }
+}
+
+// ==================== 전체 경과시간 표시 =====================
+function updateElapsedTime(){
+  const now = Date.now();
+  const diffSec = Math.floor((now - totalStartTime)/1000);
+  document.getElementById("elapsedTime").innerText = diffSec;
+}
+
+// ====================== 게임 종료 ==========================
+function endGame(){
+  // 타이머 등 정리
+  stopEnergyBar();
+  document.getElementById("gameContainer").style.display = "none";
+  document.getElementById("gameOverScreen").style.display = "block";
+  document.getElementById("finalScore").innerText = score;
+}
+
+// ====================== 점수 전송 ===========================
+function sendScore(){
+  const now = Date.now();
+  const diffSec = Math.floor((now - totalStartTime)/1000);
+
+  // saveData(게임이름, 플레이어 이름, 점수, 총경과시간)
+  saveData("유리수가 되게 하는 x의 값", playerName, score, diffSec);
+}
+</script>
+</body>
+</html>
